@@ -38,7 +38,7 @@ public class GMScript : MonoBehaviour
     private int _maxEy = -BOUNDS_MAX;
 
     private int _inARow;
-
+    private int _enemyinARow;
     // private int _width = 0, _height = 0;
 
     private Vector3Int[] _myPiece;
@@ -65,18 +65,22 @@ public class GMScript : MonoBehaviour
         PIECES = new []{PIECE_T,PIECE_L,PIECE_Z,PIECE_J,PIECE_S,PIECE_I};
     }
     
-    void Start()
-    {
-        _myPiece = null;
-        _myChunk = null;
-        Dirty = true;
-        _initialized = false;
-        InitializePieces();
-    }
+    
     
     private Vector3Int[] CreateAPiece(int midX, int maxY)
     {
         var targetPiece = PIECES[Random.Range(0, PIECES.Length)];
+        var newPiece = new Vector3Int[targetPiece.Length];
+        for (var i = 0; i < targetPiece.Length; i++)
+        {
+            newPiece[i].x = targetPiece[i].x + midX;
+            newPiece[i].y = targetPiece[i].y + maxY;
+        }
+        return newPiece;
+
+    }private Vector3Int[] CreateAnIPiece(int midX, int maxY)
+    {
+        var targetPiece = PIECE_I;
         var newPiece = new Vector3Int[targetPiece.Length];
         for (var i = 0; i < targetPiece.Length; i++)
         {
@@ -242,7 +246,7 @@ public class GMScript : MonoBehaviour
             newPiece[i] = new Vector3Int(rotatedX, rotatedY);
         }
 
-        Array.Copy(newPiece, piece, piece.Length);
+        //Array.Copy(newPiece, piece, piece.Length);
         return newPiece;
     }
 
@@ -257,6 +261,20 @@ public class GMScript : MonoBehaviour
         if (chunk.Any(p => p.x == chunkPoint.x && p.y == chunkPoint.y))
             return chunk;
         return chunk.Concat(new [] {chunkPoint}).ToArray();
+    }
+    
+    private Vector3Int[] MoveUpChunks(Vector3Int[] chunk,int row)
+    {
+        chunk ??= new Vector3Int[] {};
+        var newChunk = new Vector3Int[] { };
+        foreach (var p in chunk)
+        {
+          
+             Vector3Int[] movedPieces = { new(p.x, p.y + row, p.z) };
+             newChunk = newChunk.Concat(movedPieces).ToArray();
+            
+        }
+        return newChunk;
     }
 
     private Vector3Int[] DropPiece(Vector3Int[] piece, bool player)
@@ -340,6 +358,7 @@ public class GMScript : MonoBehaviour
     private const int GOOD_SCORE = 10000;
     private int EvaluateEnemyPieceScore(Vector3Int[] piece, Vector3Int[] chunk, bool drop = true)
     {
+        
         if (null == piece || null == chunk) return -GOOD_SCORE;
         var combined = drop ? DropPiece(piece,false).Concat(chunk).ToArray() : piece.Concat(chunk).ToArray();
         
@@ -349,40 +368,134 @@ public class GMScript : MonoBehaviour
             Debug.Log("FOUND A LINE: ");
             return GOOD_SCORE; // LINE!
         }
-        if (DEBUG_MODE) Debug.Log($"{combined.Average(p => p.y)}");//\n{ChunkToString(combined)}");
-        return 100 * (int) (BOUNDS_MAX - combined.Average(p => p.y)); // HIGHEST SCORE = LOWEST AVERAGE 
+        else if(combined.Max(p => p.x) == _maxEx) {
+            return -GOOD_SCORE;
+
+        }
+        //Debug.Log($"{combined.Average(p => p.y)}");
+        //Debug.Log(10 * HeightLeap(combined).Average());
+        return (int)(100 *(10+(-10*HeightLeap(combined).Average() ))); // HIGHEST SCORE = LOWEST AVERAGE 
     }
 
-    private Vector3Int[] EnemyChooseAction(Vector3Int[] piece)
+
+    // strategy: leave maxEy blank until I-piece come and make a tetris. if >5 draw an I-piece for that. Score = killrow*10000
+    // No killrow for any other situation.
+    // check the height difference for any two column, if >5 draw an I-piece for that. Score = 50000
+    // othertime, draw random piece.
+
+    private List<Vector3Int[]> EnemyChooseAction(Vector3Int[] piece,int round)
     {
-        if (null == piece) return null; 
+        if (piece == null) return new List<Vector3Int[]>();
+        int n = round;
         var enemyGoLeft = ShiftPiece(piece, -1, 0, false);
         var enemyGoRight = ShiftPiece(piece, 1, 0, false);
         var enemyGoRotate = RotatePiece(piece, false);
-        Vector3Int[][] enemyOptions = {enemyGoLeft, enemyGoRight, enemyGoRotate, piece};
+        Vector3Int[][] enemyOptions = {enemyGoLeft, enemyGoRight, enemyGoRotate,piece};
         var validOptions = enemyOptions.Where(p => ValidPiece(p, false)).ToArray();
-        if (!validOptions.Any()) return piece;
-        var maxScore = validOptions.Max(p => EvaluateEnemyPieceScore(p, _enemyChunk));
-        validOptions = validOptions.Where(p => EvaluateEnemyPieceScore(p, _enemyChunk) == maxScore).ToArray();
-        if (DEBUG_MODE) Debug.Log($"max score = {maxScore}; options = {validOptions.Length}");
-        return validOptions.ElementAt(Random.Range(0, validOptions.Count())); 
+        Queue<List<Vector3Int[]>> q = new();
+        List<Vector3Int[]> l = new();
+        l.Add(piece);
+        q.Enqueue(l);
+        List<List<Vector3Int[]>> res = new();
+        List<int> resScore= new();
+        while (q.Any())
+        {
+            n--;
+            List<Vector3Int[]> list = q.Dequeue();
+            Vector3Int[] temp = list.Last();
+            if (EvaluateEnemyPieceScore(piece,_enemyChunk) == GOOD_SCORE)
+            {
+                return list;
+            }
+            else if(n == 0)
+            {
+                res.Add(list);
+                resScore.Add(EvaluateEnemyPieceScore(list.Last(), _enemyChunk));
+            }
+            else
+            {
+                foreach (Vector3Int[] p in validOptions)
+                {
+                    List<Vector3Int[]> newList = new List<Vector3Int[]>(list);
+                    newList.Add(p);
+                    q.Enqueue(newList);
+                }
+            }
+        }
+        int maxScore = -1000;
+        int maxIndex = 0;
+        for(int i = 0; i < resScore.Count(); i++)
+        {
+            if (maxScore < resScore.ElementAt(i))
+            {
+                maxIndex = i;
+                maxScore = resScore.ElementAt(i);
+            }
+        }
+        
+        return res.ElementAt(maxIndex);
+       
     }
+
     
+
+    
+
+    // return the Leap between each col.  
+    private int[] HeightLeap(Vector3Int[] chunk)
+    {
+        int[] heightEachCol = new int[_maxEx - _minEx +1];
+        for(int h = 0; h < heightEachCol.Length; h++)
+        {
+            heightEachCol[h] = _minEy;
+        }   
+        int minx = _minEx;
+        foreach (var p in chunk)
+        {
+            if (p.y > heightEachCol[p.x-minx]) heightEachCol[p.x-minx] = p.y;
+        }
+        int[] leap = new int[heightEachCol.Length-1];
+        for (int i = 0; i < heightEachCol.Length - 1; i++)
+        {
+            leap[i] = Math.Abs(heightEachCol[i + 1] - heightEachCol[i]);
+        }
+
+        Debug.Log("leap: "+String.Join(",",leap));
+        return leap;
+    }
+
+
     private void EnemyDoAction()
     {
         Dirty = true;
+        List<Vector3Int[]> chosenAction = new();
+        int actionIndex = 0;
         if (null == _enemyPiece)
         {
-            _enemyPiece = CreateAPiece((_minEx + _maxEx) / 2, _maxEy);
+            int[] leap = HeightLeap(_enemyChunk);
+            if (leap.Max() > 5) _enemyPiece = CreateAnIPiece((_minEx + _maxEx) / 2, _maxEy);
+            else _enemyPiece = CreateAPiece((_minEx + _maxEx) / 2, _maxEy);
+
+            chosenAction = EnemyChooseAction(_enemyPiece,3);
+            actionIndex = 0;
             if (!ValidPiece(_enemyPiece, false))
             {
                 if (DEBUG_MODE) Debug.Log("ENEMY DEAD");
             }
         }
-        else
+        else 
         {
-
-            var tmpPiece = ShiftPiece(_enemyPiece, 0, -1, false);
+            var tmpPiece = _enemyChunk;
+            if (!chosenAction.Any())
+            {
+               tmpPiece = ShiftPiece(_enemyPiece, 0, -1, false);
+            } 
+            else
+            {
+                tmpPiece = chosenAction.ElementAt(actionIndex);
+                tmpPiece = ShiftPiece(tmpPiece, 0, -1, false);
+                
+            }
             if (!ValidPiece(tmpPiece, false))
             {
                 _enemyChunk = ChunkPiece(_enemyPiece, _enemyChunk);
@@ -390,7 +503,8 @@ public class GMScript : MonoBehaviour
             }
             else
             {
-                _enemyPiece = EnemyChooseAction(tmpPiece);
+                _enemyPiece = tmpPiece;
+                //_enemyPiece = EnemyChooseAction(tmpPiece);
                 //_enemyPiece = EnemyChooseRecursive(tmpPiece);
             }
         }
@@ -446,11 +560,37 @@ public class GMScript : MonoBehaviour
     {
         _myChunk = AddChunkAtPoint(_myChunk,RandomEnemyPointInRange(_minBx,_minBy,_maxBx,_maxBy));
     }
+
+    private void AddRowsForEnemy(int row)
+    {
+        _enemyChunk = MoveUpChunks(_enemyChunk, row);
+        for (int i = _minEy; i <= _minEy+row; i++)
+        {
+            int randj = Random.Range(_minEx, _maxEx);
+            for(int j = _minEx; j <= _maxEx; j++)
+            {
+                if (j == randj) continue;
+                _enemyChunk = AddChunkAtPoint(_enemyChunk, new(j,i));
+            }
+        }
+    }private void AddRowsForPlayer(int row)
+    {
+        _myChunk = MoveUpChunks(_myChunk, row);
+        for (int i = _minBy; i <= _minBy+row; i++)
+        {
+            int randj = Random.Range(_minBx, _maxBx);
+            for(int j = _minBx; j <= _maxBx; j++)
+            {
+                if (j == randj) continue;
+                _myChunk = AddChunkAtPoint(_myChunk, new(j,i));
+            }
+        }
+    }
     
     void FixedUpdate()
     {
         if (0 != _fixedUpdateCount++ % _fixedUpdateFramesToWait) return;
-        PlayerDoDown();
+        //PlayerDoDown();
         EnemyDoAction();
         if (_inARow > _difficulty)
         {
@@ -466,13 +606,41 @@ public class GMScript : MonoBehaviour
         {
             _myChunk = KillRow(_myChunk, row_to_kill);
             _inARow++;
-            MakeRandomAngryChunk();
+            AddRowsForEnemy(_inARow-1);
+            //MakeRandomAngryChunk();
         }
-        else _inARow = 0;
+        else
+        {
+            _inARow = 0;
+        }
+        var enemy_row_to_kill = FindKillableRow(_enemyChunk, _maxEx - _minEx + 1);
+        if (NO_ROW != enemy_row_to_kill)
+        {
+            _enemyChunk = KillRow(_enemyChunk, enemy_row_to_kill);
+            _enemyinARow++;
+            AddRowsForPlayer(_enemyinARow-1);
+            //MakeRandomAngryChunk();
+        }
+        else
+        {
+            _enemyinARow = 0;
+        }
         infoText.text = $"PTS:{_score}\t\tMAX:{_difficulty}\nCURRIC 576";
         _fixedUpdateCount = 1;
     }
-    
+    private void Awake()
+    {
+        _myPiece = null;
+        _myChunk = null;
+        Dirty = true;
+        _initialized = false;
+        InitializePieces();
+    }
+    void Start()
+    {
+       
+        if (!_initialized) SetupBaseBoards();
+    }
     void Update()
     {
         if (null == Camera.main) return; 
