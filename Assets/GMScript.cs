@@ -20,7 +20,7 @@ public class GMScript : MonoBehaviour
     public TMP_Text infoText;
     private int _score;
     private int _difficulty;
-    private int _fixedUpdateFramesToWait = 10;
+    private int _fixedUpdateFramesToWait = 4;
     private int _fixedUpdateCount;
 
     // ReSharper disable once InconsistentNaming
@@ -38,7 +38,7 @@ public class GMScript : MonoBehaviour
     private int _maxEy = -BOUNDS_MAX;
 
     private int _inARow;
-    private int _enemyinARow;
+
     // private int _width = 0, _height = 0;
 
     private Vector3Int[] _myPiece;
@@ -69,7 +69,7 @@ public class GMScript : MonoBehaviour
     
     private Vector3Int[] CreateAPiece(int midX, int maxY)
     {
-        var targetPiece = PIECES[Random.Range(0, PIECES.Length)];
+        var targetPiece = PIECES[Random.Range(0, 6)];
         var newPiece = new Vector3Int[targetPiece.Length];
         for (var i = 0; i < targetPiece.Length; i++)
         {
@@ -358,23 +358,52 @@ public class GMScript : MonoBehaviour
     private const int GOOD_SCORE = 10000;
     private int EvaluateEnemyPieceScore(Vector3Int[] piece, Vector3Int[] chunk, bool drop = true)
     {
-        
+        int result = 1000;
         if (null == piece || null == chunk) return -GOOD_SCORE;
-        var combined = drop ? DropPiece(piece,false).Concat(chunk).ToArray() : piece.Concat(chunk).ToArray();
+        var dp = DropPiece(piece, false);
+        int[] dropX = { dp[0].x, dp[1].x, dp[2].x, dp[3].x };
+        int[] dropY = { dp[0].y, dp[1].y, dp[2].y, dp[3].y, };
         
+        var combined = drop ? DropPiece(piece,false).Concat(chunk).ToArray() : piece.Concat(chunk).ToArray();
+        for(int i = 0; i < dropX.Count(); i++)
+        {
+            if (dropY[i] - 1 >= -10
+                && !combined.Contains(new Vector3Int(dropX[i], dropY[i] - 1)))
+            {
+                result -= 100;
+                //Debug.Log("deduction");
+            }
+            if (dropY[i] - 2 >= -10
+                && !combined.Contains(new Vector3Int(dropX[i], dropY[i] - 2)))
+            {
+                result -= 50;
+                //Debug.Log("deduction");
+            }
+            var segment = new ArraySegment<int>(HeightLeap(combined),0, 6);
+            if (segment.Max() > 3)
+            {
+                result -= 100;
+            }
+            if (dp.Max(p => p.x) == _maxEx && dropY[0]==dropY[1] && dropY[1] == dropY[2] && dropY[2] == dropY[3])
+            {
+                result -= 50;
+            }
+            if (dp.Max(p => p.x) == _maxEx && dropX[0] == dropX[1] && dropX[1] == dropX[2] && dropX[2] == dropX[3])
+            {
+                result += 50;
+            }
+        }
         var row = FindKillableRow(combined, _maxEx - _minEx + 1);
         if (row != NO_ROW)
         {
             Debug.Log("FOUND A LINE: ");
             return GOOD_SCORE; // LINE!
         }
-        else if(combined.Max(p => p.x) == _maxEx) {
-            return -GOOD_SCORE;
-
-        }
-        //Debug.Log($"{combined.Average(p => p.y)}");
-        //Debug.Log(10 * HeightLeap(combined).Average());
-        return (int)(100 *(10+(-10*HeightLeap(combined).Average() ))); // HIGHEST SCORE = LOWEST AVERAGE 
+        
+        result -= (int)(40 * combined.Average(p => p.y +10) + 10 * HeightLeap(combined).Average());
+        Debug.Log("result: "+result);
+        //Debug.Log((int)(100 * (10 + (-10 * HeightLeap(combined).Average()))));
+        return result;
     }
 
 
@@ -386,12 +415,7 @@ public class GMScript : MonoBehaviour
     private List<Vector3Int[]> EnemyChooseAction(Vector3Int[] piece,int round)
     {
         if (piece == null) return new List<Vector3Int[]>();
-        int n = round;
-        var enemyGoLeft = ShiftPiece(piece, -1, 0, false);
-        var enemyGoRight = ShiftPiece(piece, 1, 0, false);
-        var enemyGoRotate = RotatePiece(piece, false);
-        Vector3Int[][] enemyOptions = {enemyGoLeft, enemyGoRight, enemyGoRotate,piece};
-        var validOptions = enemyOptions.Where(p => ValidPiece(p, false)).ToArray();
+       
         Queue<List<Vector3Int[]>> q = new();
         List<Vector3Int[]> l = new();
         l.Add(piece);
@@ -400,27 +424,40 @@ public class GMScript : MonoBehaviour
         List<int> resScore= new();
         while (q.Any())
         {
-            n--;
+            //Debug.Log("inBFS: "+n);
+            
             List<Vector3Int[]> list = q.Dequeue();
-            Vector3Int[] temp = list.Last();
-            if (EvaluateEnemyPieceScore(piece,_enemyChunk) == GOOD_SCORE)
+            Vector3Int[] tmp = list.Last();
+            var enemyGoLeft = ShiftPiece(tmp, -1, 0, false);
+            var enemyGoRight = ShiftPiece(tmp, 1, 0, false);
+            var enemyGoRotate = RotatePiece(tmp, false);
+            Vector3Int[][] enemyOptions = { enemyGoLeft, enemyGoRight, enemyGoRotate, tmp};
+            var validOptions = enemyOptions.Where(p => ValidPiece(p, false)).ToArray();
+            if (EvaluateEnemyPieceScore(tmp,_enemyChunk) == GOOD_SCORE)
             {
                 return list;
             }
-            else if(n == 0)
+            else if(list.Count()==round)
             {
+                
                 res.Add(list);
                 resScore.Add(EvaluateEnemyPieceScore(list.Last(), _enemyChunk));
+                
+            }else if (list.Count() > round)
+            {
+                break;
             }
             else
             {
                 foreach (Vector3Int[] p in validOptions)
                 {
+                    //Debug.Log("ineach: ");
                     List<Vector3Int[]> newList = new List<Vector3Int[]>(list);
                     newList.Add(p);
                     q.Enqueue(newList);
                 }
             }
+           
         }
         int maxScore = -1000;
         int maxIndex = 0;
@@ -432,6 +469,8 @@ public class GMScript : MonoBehaviour
                 maxScore = resScore.ElementAt(i);
             }
         }
+       // Debug.Log(String.Join(",",resScore.ToArray()));
+        //Debug.Log(res.ElementAt(maxIndex).Count());
         
         return res.ElementAt(maxIndex);
        
@@ -460,40 +499,48 @@ public class GMScript : MonoBehaviour
             leap[i] = Math.Abs(heightEachCol[i + 1] - heightEachCol[i]);
         }
 
-        Debug.Log("leap: "+String.Join(",",leap));
+        //Debug.Log("leap: "+String.Join(",",leap));
         return leap;
     }
 
-
+    List<Vector3Int[]> _chosenAction = new();
     private void EnemyDoAction()
     {
         Dirty = true;
-        List<Vector3Int[]> chosenAction = new();
-        int actionIndex = 0;
+      
         if (null == _enemyPiece)
+
         {
             int[] leap = HeightLeap(_enemyChunk);
-            if (leap.Max() > 5) _enemyPiece = CreateAnIPiece((_minEx + _maxEx) / 2, _maxEy);
-            else _enemyPiece = CreateAPiece((_minEx + _maxEx) / 2, _maxEy);
+            if (leap.Max() > 5) _enemyPiece = CreateAnIPiece((_minEx + _maxEx) / 2+2, _maxEy-2);
+            else _enemyPiece = CreateAPiece((_minEx + _maxEx) / 2, _maxEy-1);
 
-            chosenAction = EnemyChooseAction(_enemyPiece,3);
-            actionIndex = 0;
+            _chosenAction = EnemyChooseAction(_enemyPiece,5);
+
+            _actionIndex = 0;
             if (!ValidPiece(_enemyPiece, false))
             {
+                Debug.Break();
                 if (DEBUG_MODE) Debug.Log("ENEMY DEAD");
             }
         }
         else 
         {
+          //  Debug.Log(_chosenAction.Count());
+
             var tmpPiece = _enemyChunk;
-            if (!chosenAction.Any())
+            if (!_chosenAction.Any()||_chosenAction.Count()<=_actionIndex)
             {
                tmpPiece = ShiftPiece(_enemyPiece, 0, -1, false);
+
             } 
             else
             {
-                tmpPiece = chosenAction.ElementAt(actionIndex);
-                tmpPiece = ShiftPiece(tmpPiece, 0, -1, false);
+                
+                tmpPiece = _chosenAction.ElementAt(_actionIndex);
+                _actionIndex++;
+                Debug.Log(_actionIndex);
+                tmpPiece = ShiftPiece(tmpPiece, 0, -_actionIndex, false);
                 
             }
             if (!ValidPiece(tmpPiece, false))
@@ -566,19 +613,20 @@ public class GMScript : MonoBehaviour
         _enemyChunk = MoveUpChunks(_enemyChunk, row);
         for (int i = _minEy; i <= _minEy+row; i++)
         {
-            int randj = Random.Range(_minEx, _maxEx);
+            int randj = _maxEx;
             for(int j = _minEx; j <= _maxEx; j++)
             {
                 if (j == randj) continue;
                 _enemyChunk = AddChunkAtPoint(_enemyChunk, new(j,i));
             }
         }
-    }private void AddRowsForPlayer(int row)
+    }
+    private void AddRowsForPlayer(int row)
     {
         _myChunk = MoveUpChunks(_myChunk, row);
         for (int i = _minBy; i <= _minBy+row; i++)
         {
-            int randj = Random.Range(_minBx, _maxBx);
+            int randj = _minBx;
             for(int j = _minBx; j <= _maxBx; j++)
             {
                 if (j == randj) continue;
@@ -586,11 +634,13 @@ public class GMScript : MonoBehaviour
             }
         }
     }
-    
+
+
+    int _actionIndex = 0;
     void FixedUpdate()
     {
         if (0 != _fixedUpdateCount++ % _fixedUpdateFramesToWait) return;
-        //PlayerDoDown();
+        PlayerDoDown();
         EnemyDoAction();
         if (_inARow > _difficulty)
         {
@@ -605,8 +655,8 @@ public class GMScript : MonoBehaviour
         if (NO_ROW != row_to_kill)
         {
             _myChunk = KillRow(_myChunk, row_to_kill);
-            _inARow++;
-            AddRowsForEnemy(_inARow-1);
+            
+            AddRowsForEnemy(1);
             //MakeRandomAngryChunk();
         }
         else
@@ -617,13 +667,13 @@ public class GMScript : MonoBehaviour
         if (NO_ROW != enemy_row_to_kill)
         {
             _enemyChunk = KillRow(_enemyChunk, enemy_row_to_kill);
-            _enemyinARow++;
-            AddRowsForPlayer(_enemyinARow-1);
+            
+            AddRowsForPlayer(1);
             //MakeRandomAngryChunk();
         }
         else
         {
-            _enemyinARow = 0;
+            
         }
         infoText.text = $"PTS:{_score}\t\tMAX:{_difficulty}\nCURRIC 576";
         _fixedUpdateCount = 1;
