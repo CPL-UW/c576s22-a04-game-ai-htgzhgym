@@ -520,6 +520,7 @@ public class GMScript : MonoBehaviour
             _actionIndex = 0;
             if (!ValidPiece(_enemyPiece, false))
             {
+                infoText.text = "ENEMY DEAD";
                 Debug.Break();
                 if (DEBUG_MODE) Debug.Log("ENEMY DEAD");
             }
@@ -699,9 +700,11 @@ public class GMScript : MonoBehaviour
         {
             _myPiece = CreateAPiece((_minBx + _maxBx) / 2, _maxBy);
             if (!ValidPiece(_myPiece, true))
-            {   
+            {
+                infoText.text = "NO VALID MOVE";
                 Debug.Log("NO VALID MOVE");
                 Debug.Break();
+
             }
         }
         
