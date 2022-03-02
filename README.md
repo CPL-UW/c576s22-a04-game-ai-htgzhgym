@@ -15,7 +15,8 @@ lose score:
 3. average height
 4. average leap
 
-
+To run:
+run the executable in build folder
 
 ----------------------------
 # CS576-Tetris-Sample
