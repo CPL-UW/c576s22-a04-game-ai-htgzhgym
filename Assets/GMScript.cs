@@ -522,6 +522,7 @@ public class GMScript : MonoBehaviour
             {
                 infoText.text = "ENEMY DEAD";
                 Debug.Break();
+                Time.timeScale = 0;
                 if (DEBUG_MODE) Debug.Log("ENEMY DEAD");
             }
         }
@@ -703,13 +704,16 @@ public class GMScript : MonoBehaviour
             {
                 infoText.text = "NO VALID MOVE";
                 Debug.Log("NO VALID MOVE");
+                Time.timeScale = 0;
                 Debug.Break();
 
             }
         }
         
         
-        if (Input.GetKeyDown(KeyCode.Q)) { Debug.Break(); }
+        if (Input.GetKeyDown(KeyCode.Q)) { Debug.Break();
+            Application.Quit();
+        }
         else if (Input.GetMouseButtonDown(0)) 
         {
             var point = Camera.main.ScreenToWorldPoint(Input.mousePosition); 
